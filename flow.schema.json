@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/wufe/oprun/flow.schema.json",
+  "title": "oprun flow",
+  "description": "A configurable task runner flow executed by the oprun CLI.",
+  "type": "object",
+  "required": ["name", "nodes"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Flow identifier. Also the basename of the built-in flow file and the state file at ~/.local/state/oprun/<name>.json."
+    },
+    "description": {
+      "type": "string",
+      "description": "Shown in `oprun list`."
+    },
+    "vars": {
+      "type": "array",
+      "description": "Variables prompted at the start of the flow. Referenced as {name} in run/dir/prompt/options_cmd fields.",
+      "items": { "$ref": "#/$defs/var" }
+    },
+    "nodes": {
+      "type": "array",
+      "description": "Top-level nodes, executed in order. A node that ends (either has no branch, or its branch subtree completes) falls through to the next sibling.",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/node" }
+    }
+  },
+  "$defs": {
+    "var": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Variable name; usable as {name} in run/dir/prompt/options_cmd."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Label shown in the huh input prompt. Defaults to the variable name."
+        },
+        "default": {
+          "type": "string",
+          "description": "Fallback default when nothing is saved from a previous run."
+        }
+      }
+    },
+
+    "node": {
+      "type": "object",
+      "description": "A flow step. Type is optional and defaults to 'exec'. Branch subtrees (on_yes/on_no/do/options[].do) are nested lists of nodes.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Optional. Required only if another node needs to `goto` here, or if you want confirm/static-choose answers persisted across runs (state is keyed by id)."
+        },
+        "type": {
+          "type": "string",
+          "description": "Node kind. Omitting it defaults to 'exec'.",
+          "enum": ["exec", "confirm", "choose", "input", "goto", "foreach"],
+          "default": "exec"
+        },
+        "description": {
+          "type": "string",
+          "description": "Free-form human-readable note."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              { "required": ["type"], "properties": { "type": { "const": "exec" } } },
+              { "not": { "required": ["type"] } }
+            ]
+          },
+          "then": {
+            "required": ["run"],
+            "properties": {
+              "run": {
+                "type": "string",
+                "description": "Shell command, run via `bash -c`. Supports {var} substitution."
+              },
+              "dir": {
+                "type": "string",
+                "description": "Working directory for the command. Supports {var} substitution."
+              },
+              "capture": {
+                "type": "string",
+                "description": "If set, the command's stdout (trimmed) is stored in the named variable and persisted."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["type"],
+            "properties": { "type": { "const": "confirm" } }
+          },
+          "then": {
+            "required": ["prompt"],
+            "properties": {
+              "prompt": {
+                "type": "string",
+                "description": "Question shown by huh.Confirm. Supports {var} substitution."
+              },
+              "on_yes": {
+                "type": "array",
+                "description": "Subtree run when the user picks Yes. Omit to fall through to the next sibling.",
+                "items": { "$ref": "#/$defs/node" }
+              },
+              "on_no": {
+                "type": "array",
+                "description": "Subtree run when the user picks No. Omit to fall through to the next sibling.",
+                "items": { "$ref": "#/$defs/node" }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["type"],
+            "properties": { "type": { "const": "choose" } }
+          },
+          "then": {
+            "required": ["prompt"],
+            "oneOf": [
+              { "required": ["options"] },
+              { "required": ["options_cmd"] }
+            ],
+            "properties": {
+              "prompt": {
+                "type": "string",
+                "description": "Header shown by huh.Select/MultiSelect. Supports {var} substitution."
+              },
+              "multi": {
+                "type": "boolean",
+                "default": false,
+                "description": "Allow multiple selections. When true and `store` is set, the variable gets a list."
+              },
+              "store": {
+                "type": "string",
+                "description": "Optional variable name in which to store the selected value(s). Required on dynamic choose (options_cmd) if you want to reference the selection downstream."
+              },
+              "options": {
+                "type": "array",
+                "description": "Static options. Each option may carry its own subtree (`do`) or a `goto`. Exclusive with options_cmd.",
+                "items": { "$ref": "#/$defs/option" }
+              },
+              "options_cmd": {
+                "type": "string",
+                "description": "Dynamic options. Shell command whose stdout lines become options. A line of the form '<label>\\t<value>' splits into shown label + stored value; a line with no tab is used for both. Exclusive with options."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["type"],
+            "properties": { "type": { "const": "input" } }
+          },
+          "then": {
+            "required": ["store"],
+            "properties": {
+              "prompt": {
+                "type": "string",
+                "description": "Label shown by huh.Input. Defaults to the store name."
+              },
+              "store": {
+                "type": "string",
+                "description": "Variable name to write. Persisted across runs as the default value."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["type"],
+            "properties": { "type": { "const": "goto" } }
+          },
+          "then": {
+            "required": ["goto"],
+            "properties": {
+              "goto": {
+                "type": "string",
+                "description": "Top-level node `id` to jump to. Execution resumes linearly from there."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["type"],
+            "properties": { "type": { "const": "foreach" } }
+          },
+          "then": {
+            "required": ["var", "do"],
+            "properties": {
+              "var": {
+                "type": "string",
+                "description": "Name of a list variable to iterate over (typically from a multi-`choose` with `store`)."
+              },
+              "as": {
+                "type": "string",
+                "description": "Optional loop-variable name. Defaults to `var` (the list is shadowed during the iteration and restored after)."
+              },
+              "do": {
+                "type": "array",
+                "description": "Subtree executed once per item.",
+                "items": { "$ref": "#/$defs/node" }
+              }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+
+    "option": {
+      "type": "object",
+      "description": "A static choice under `choose.options`. Must define exactly one of `do` or `goto` (or neither, to simply store the selection and fall through).",
+      "required": ["label"],
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Displayed and stored value for this option."
+        },
+        "do": {
+          "type": "array",
+          "description": "Subtree run when this option is selected.",
+          "items": { "$ref": "#/$defs/node" }
+        },
+        "goto": {
+          "type": "string",
+          "description": "Top-level node id to jump to when this option is selected."
+        }
+      }
+    }
+  }
+}
