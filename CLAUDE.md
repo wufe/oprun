@@ -63,7 +63,11 @@ These behave differently in ways that aren't obvious from the YAML surface:
 
 ### Flow discovery (`main.go`)
 
-Search order, first match wins: `./.oprun/flows/`, `./.flows/`, `./flows/`, `~/.oprun/flows/`. Local shadows global. A name containing `/` or ending in `.yaml`/`.yml` is treated as a literal path and bypasses the search.
+Search order, first match wins: `./.oprun/flows/`, `./.flows/`, `./flows/`, `<repo-root>/.oprun/flows/`, `<repo-root>/.flows/`, `<repo-root>/flows/`, `~/.oprun/flows/`. Specificity goes cwd → repo-root → home. The `<repo-root>` entries reuse `findRepoRoot` (same bounded `.git` walk that backs `from_repo_root`) and are silently skipped when cwd is not inside a repo. `flowSearchDirs` dedupes by cleaned path so cwd-equals-repo-root doesn't double-count. A name containing `/` or ending in `.yaml`/`.yml` is treated as a literal path and bypasses the search. **Note**: discovery runs *before* the flow YAML is loaded, so it can't depend on the flow's `from_repo_root` field — discovery and `from_repo_root` are independent features that happen to share `findRepoRoot`.
+
+### Working directory resolution (`runner.go`)
+
+`Runner.baseDir` is the base for resolving `dir:` and the default cwd for `exec`. It is **empty** by default — meaning current behaviour is preserved exactly: relative dirs are passed through to bash, empty dir means cwd is inherited from the parent process. When `flow.from_repo_root: true`, `resolveBaseDir` walks up from cwd looking for `.git` (capped at 10 levels, blocked at the system-parent set in `systemParentBlocklist`) and stores the result in `baseDir`. The flow errors out at start if the walk fails. After that, `resolveDir` joins relative `dir:` values onto baseDir, keeps absolutes unchanged, and substitutes baseDir for empty dirs. The same path goes through `runExec` and `shellCapture` (which serves `options_cmd`), so both get consistent behaviour. Any new node type that runs commands must call `r.resolveDir(...)` rather than using a `dir:` field raw.
 
 ## When editing
 

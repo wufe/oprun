@@ -52,13 +52,23 @@ oprun run ./my-flow.yaml    # run a yaml file directly by path
 
 ### Flow search order
 
-First match wins. Local directories shadow `$HOME`, so you can keep
-project-specific flows next to the code they automate.
+First match wins. Specificity goes cwd → monorepo root → home, so a
+project-specific flow shadows a repo-shared one, which in turn shadows your
+personal collection.
 
 1. `./.oprun/flows/<name>.yaml`
 2. `./.flows/<name>.yaml`
 3. `./flows/<name>.yaml`
-4. `~/.oprun/flows/<name>.yaml`
+4. `<repo-root>/.oprun/flows/<name>.yaml`  *(when cwd is inside a git repo)*
+5. `<repo-root>/.flows/<name>.yaml`
+6. `<repo-root>/flows/<name>.yaml`
+7. `~/.oprun/flows/<name>.yaml`
+
+Steps 4–6 use the same bounded `.git` ancestor walk as the
+[`from_repo_root`](./FLOWS.md#21-from_repo_root--resolve-dir-from-the-monorepo-root)
+flow setting, so the search is silently skipped when cwd is not inside a repo
+(or the walk is stopped by the system-parent blocklist). Duplicates are
+deduped, so when cwd *is* the repo root, steps 1–3 cover steps 4–6.
 
 Both `.yaml` and `.yml` extensions are accepted.
 
@@ -147,6 +157,7 @@ via the tab-separator) and upload each one.
 - `type: goto` jumps anywhere by `id`; execution resumes linearly from there.
 - Omitting `on_yes`/`on_no` on a confirm is equivalent to "do nothing on that answer, fall through" — a common pattern.
 - `when:` on any node gates whether it runs. The string is run through `{var}` substitution and evaluated as truthy: empty / `no` / `false` / `0` / `off` (case-insensitive) skip the node; anything else runs it. Useful for gating on a flag captured by an earlier `exec` — e.g. `when: "{rebuilt}"` after capturing `rebuilt: yes|no` in a `confirm`'s `on_yes`/`on_no` branches.
+- `from_repo_root: true` at the flow's top level resolves relative `dir:` values (and the default `exec` cwd) from the nearest `.git` ancestor instead of the process cwd — useful when the same flow is invoked from various subdirectories of a monorepo. See [`FLOWS.md`](./FLOWS.md#21-from_repo_root--resolve-dir-from-the-monorepo-root) for the full semantics.
 
 ### Node types
 

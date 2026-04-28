@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -34,6 +35,12 @@ type Runner struct {
 	statePath string
 	prompt    Prompt
 	shell     string
+
+	// baseDir is the working directory used as the base for relative `dir:`
+	// values and as the default cwd for `exec`. Empty when the flow does not
+	// opt in to repo-root resolution; in that case `exec` falls through to
+	// the inherited process cwd (today's behaviour).
+	baseDir string
 }
 
 func NewRunner(f *Flow) *Runner {
@@ -62,8 +69,98 @@ func NewRunner(f *Flow) *Runner {
 	return r
 }
 
+// resolveBaseDir computes the runner's baseDir according to the flow's
+// `from_repo_root:` toggle. Returns an error only when the toggle is on but
+// no repo root could be found within the bounded ancestor walk.
+func (r *Runner) resolveBaseDir() error {
+	if !r.flow.FromRepoRoot {
+		return nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("from_repo_root: cannot read cwd: %w", err)
+	}
+	root, ok := findRepoRoot(cwd)
+	if !ok {
+		return fmt.Errorf("from_repo_root: no .git ancestor found from %s (search capped at 10 levels and stops at system directories)", cwd)
+	}
+	r.baseDir = root
+	fmt.Printf("base dir: %s  (from_repo_root)\n", root)
+	return nil
+}
+
+// resolveDir produces the cwd to pass to `exec.Command` for a given `dir:`
+// value. Behaviour:
+//   - empty `dir`: returns the runner's baseDir (empty when feature is off,
+//     so the cmd inherits the parent's cwd as before).
+//   - absolute `dir`: returned unchanged.
+//   - relative `dir`: joined onto baseDir if set; returned unchanged otherwise
+//     so bash resolves it from the inherited cwd (today's behaviour).
+func (r *Runner) resolveDir(dir string) string {
+	if dir == "" {
+		return r.baseDir
+	}
+	if filepath.IsAbs(dir) {
+		return dir
+	}
+	if r.baseDir == "" {
+		return dir
+	}
+	return filepath.Join(r.baseDir, dir)
+}
+
+// systemParentBlocklist guards the upward walk in findRepoRoot from
+// crossing into shared/system roots. If filepath.Dir(current) is in this
+// set, we stop instead of ascending into it.
+var systemParentBlocklist = map[string]bool{
+	"/":             true,
+	"/home":         true,
+	"/Users":        true,
+	"/root":         true,
+	"/mnt":          true,
+	"/media":        true,
+	"/tmp":          true,
+	"/var":          true,
+	"/etc":          true,
+	"/usr":          true,
+	"/opt":          true,
+	"/private":      true, // macOS: /private/var, /private/tmp, ...
+	"/private/var":  true,
+	"/private/tmp":  true,
+	"/Library":      true,
+	"/System":       true,
+	"/Applications": true,
+}
+
+// findRepoRoot walks up from start looking for a `.git` entry (file for
+// submodules/worktrees, or directory). Capped at 10 levels and refuses to
+// ascend past entries in systemParentBlocklist. Returns ("", false) if no
+// repo is found within those bounds.
+func findRepoRoot(start string) (string, bool) {
+	const maxDepth = 10
+	cur := start
+	for range maxDepth {
+		if _, err := os.Stat(filepath.Join(cur, ".git")); err == nil {
+			return cur, true
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return "", false
+		}
+		if systemParentBlocklist[parent] {
+			return "", false
+		}
+		cur = parent
+	}
+	return "", false
+}
+
 func (r *Runner) Run() error {
 	defer r.persist()
+
+	if err := r.resolveBaseDir(); err != nil {
+		return err
+	}
 
 	for _, v := range r.flow.Vars {
 		p := v.Prompt
@@ -379,6 +476,7 @@ func (r *Runner) runExec(n *Node) error {
 	if err != nil {
 		return err
 	}
+	dir = r.resolveDir(dir)
 
 	fmt.Printf("\n$ %s\n", cmdStr)
 	if dir != "" {
@@ -411,6 +509,7 @@ func (r *Runner) runExec(n *Node) error {
 }
 
 func (r *Runner) shellCapture(cmdStr, dir string) (string, error) {
+	dir = r.resolveDir(dir)
 	cmd := exec.Command(r.shell, "-c", cmdStr)
 	if dir != "" {
 		cmd.Dir = dir

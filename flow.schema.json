@@ -1,8 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/wufe/oprun/flow.schema.json",
+  "$comment": "Authoring guide: see FLOWS.md next to this schema, or https://github.com/wufe/oprun/blob/main/FLOWS.md for step-by-step instructions on writing flows, the per-node-type field reference, the cookbook, and the troubleshooting table. Any change to this schema MUST be reflected in FLOWS.md (per-type sections, field reference, persistence table) and in the README's node-types table.",
   "title": "oprun flow",
-  "description": "A configurable task runner flow executed by the oprun CLI.",
+  "description": "A configurable task runner flow executed by the oprun CLI. Full authoring guide: ./FLOWS.md (or https://github.com/wufe/oprun/blob/main/FLOWS.md). The schema gives field-level hover docs; FLOWS.md gives end-to-end recipes, persistence semantics, conditional execution, and a troubleshooting list.",
   "type": "object",
   "required": ["name", "nodes"],
   "additionalProperties": false,
@@ -19,6 +20,11 @@
       "type": "array",
       "description": "Variables prompted at the start of the flow. Referenced as {name} in run/dir/prompt/options_cmd fields.",
       "items": { "$ref": "#/$defs/var" }
+    },
+    "from_repo_root": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, relative `dir:` values and the default cwd of `exec` nodes are resolved from the nearest ancestor containing a `.git` entry instead of the process cwd. The walk is capped at 10 levels and refuses to ascend past well-known system directories. The flow errors out at start if the toggle is on and no repo root is found."
     },
     "nodes": {
       "type": "array",

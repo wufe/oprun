@@ -30,18 +30,43 @@ func main() {
 }
 
 // flowSearchDirs lists directories searched for flow files, highest priority first.
-// Local overrides global: a flow in ./.oprun/flows shadows one in ~/.oprun/flows.
+// Specificity order:
+//  1. cwd-local (./.oprun/flows, ./.flows, ./flows)
+//  2. monorepo root, when cwd is inside a git repo — same three subdirs under
+//     the nearest `.git` ancestor (bounded walk; see findRepoRoot)
+//  3. user-global (~/.oprun/flows)
+//
+// Duplicates are skipped, so when cwd is itself the repo root the (1) entries
+// cover (2). Steps (2) and (3) are silently omitted if the repo root or home
+// dir cannot be resolved.
 func flowSearchDirs() []string {
 	var dirs []string
-	if cwd, err := os.Getwd(); err == nil {
-		dirs = append(dirs,
-			filepath.Join(cwd, ".oprun", "flows"),
-			filepath.Join(cwd, ".flows"),
-			filepath.Join(cwd, "flows"),
-		)
+	seen := map[string]bool{}
+	add := func(d string) {
+		if d == "" {
+			return
+		}
+		c := filepath.Clean(d)
+		if seen[c] {
+			return
+		}
+		seen[c] = true
+		dirs = append(dirs, c)
+	}
+
+	cwd, err := os.Getwd()
+	if err == nil {
+		add(filepath.Join(cwd, ".oprun", "flows"))
+		add(filepath.Join(cwd, ".flows"))
+		add(filepath.Join(cwd, "flows"))
+		if root, ok := findRepoRoot(cwd); ok {
+			add(filepath.Join(root, ".oprun", "flows"))
+			add(filepath.Join(root, ".flows"))
+			add(filepath.Join(root, "flows"))
+		}
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		dirs = append(dirs, filepath.Join(home, ".oprun", "flows"))
+		add(filepath.Join(home, ".oprun", "flows"))
 	}
 	return dirs
 }
@@ -163,5 +188,8 @@ func usage() {
 	fmt.Println("  ./.oprun/flows/<name>.yaml")
 	fmt.Println("  ./.flows/<name>.yaml")
 	fmt.Println("  ./flows/<name>.yaml")
+	fmt.Println("  <repo-root>/.oprun/flows/<name>.yaml   (when cwd is in a git repo)")
+	fmt.Println("  <repo-root>/.flows/<name>.yaml")
+	fmt.Println("  <repo-root>/flows/<name>.yaml")
 	fmt.Println("  ~/.oprun/flows/<name>.yaml")
 }

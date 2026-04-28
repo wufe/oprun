@@ -16,14 +16,34 @@ oprun resolves flow names by searching, in order (first match wins):
 1. `./.oprun/flows/<name>.yaml`
 2. `./.flows/<name>.yaml`
 3. `./flows/<name>.yaml`
-4. `~/.oprun/flows/<name>.yaml`
+4. `<repo-root>/.oprun/flows/<name>.yaml`  *(when cwd is inside a git repo)*
+5. `<repo-root>/.flows/<name>.yaml`
+6. `<repo-root>/flows/<name>.yaml`
+7. `~/.oprun/flows/<name>.yaml`
 
 Both `.yaml` and `.yml` are accepted. A name containing `/` or ending in
 `.yaml`/`.yml` is treated as a literal path and bypasses the search — useful
 while iterating: `oprun run ./draft.yaml`.
 
-**Recommendation**: project-specific recipes go in `./.oprun/flows/`, personal
-recipes go in `~/.oprun/flows/`.
+**Repo-root resolution.** Steps 4–6 use the same bounded `.git` ancestor walk
+as the [`from_repo_root`](#21-from_repo_root--resolve-dir-from-the-monorepo-root)
+flow setting (capped at 10 levels, blocked at well-known system parents). If
+cwd is not inside a repo, steps 4–6 are silently omitted. The discovery walk
+runs unconditionally — it does **not** depend on the called flow declaring
+`from_repo_root: true`. Duplicate paths are deduped, so when cwd *is* the
+repo root the cwd entries cover the repo-root entries.
+
+**Three layers, three jobs**:
+
+| Where                                  | What it's good for                                         |
+|----------------------------------------|------------------------------------------------------------|
+| `./.oprun/flows/` (cwd)                | Per-subproject overrides; drafts; very local recipes.     |
+| `<repo-root>/.oprun/flows/`            | Recipes shared across the monorepo, checked into git.     |
+| `~/.oprun/flows/`                      | Your personal collection across all projects.             |
+
+A `<repo-root>/.oprun/flows/` checked into the repo lets every contributor run
+`oprun <name>` from anywhere inside the tree without having to install the
+flow into their home directory.
 
 ---
 
@@ -35,6 +55,7 @@ Every flow has the same top-level shape:
 # yaml-language-server: $schema=https://raw.githubusercontent.com/wufe/oprun/main/flow.schema.json
 name: my-flow                  # required; also the state filename
 description: One-line summary  # optional; shown in `oprun list`
+from_repo_root: true           # optional; resolve relative dirs from the .git ancestor (see section 2.1)
 
 vars:                          # optional; prompted at the very start
   - name: env
@@ -53,6 +74,39 @@ Three things to internalize:
   the whole flow depends on (target environment, username, version tag).
 - `nodes:` is an ordered list. Execution flows top-to-bottom; nested branch
   subtrees fall through to the parent's next sibling when they finish.
+
+### 2.1 `from_repo_root:` — resolve `dir:` from the monorepo root
+
+By default, every `exec` node runs in the process's cwd, and a relative `dir:`
+is resolved by bash against that cwd. In a monorepo this is awkward — running
+the same flow from `tools/` and from `tools/sub/` gives different results.
+
+Set `from_repo_root: true` at the flow's top level and oprun will:
+
+1. At flow start, walk up from cwd looking for a `.git` entry (file or
+   directory). The walk is **capped at 10 levels** and refuses to ascend past
+   well-known system parents (`/`, `/home`, `/Users`, `/root`, `/tmp`, `/var`,
+   `/etc`, `/usr`, `/opt`, `/mnt`, `/media`, `/Library`, `/System`,
+   `/Applications`, and the macOS `/private` family).
+2. If no repo root is found, the flow errors out before running any node.
+3. If found, that directory becomes the **base directory**:
+   - Empty `dir:` on an `exec` node → the command runs in the repo root.
+   - Relative `dir: subdir/x` → joined onto the repo root.
+   - Absolute `dir: /tmp` → used as-is.
+4. The same base applies to `options_cmd` shells used by dynamic `choose`.
+
+Example: the user starts oprun from `/home/wufe/cubbit/tools/`, with `.git` at
+`/home/wufe/cubbit/.git`:
+
+| `dir:` value         | feature off (cwd resolution) | feature on (repo-root resolution) |
+|----------------------|------------------------------|------------------------------------|
+| omitted              | `/home/wufe/cubbit/tools/`   | `/home/wufe/cubbit/`               |
+| `tools/efesto`       | `/home/wufe/cubbit/tools/tools/efesto` | `/home/wufe/cubbit/tools/efesto` |
+| `/opt/builds`        | `/opt/builds`                | `/opt/builds`                      |
+
+When the toggle is off (default), the original cwd-based behaviour is
+preserved exactly — relative `dir:` values are passed through to bash, which
+resolves them against the inherited cwd.
 
 ---
 
@@ -433,12 +487,13 @@ valid on `exec`).
 
 ### Flow
 
-| Field         | Type       | Required | Notes                                            |
-|---------------|------------|----------|--------------------------------------------------|
-| `name`        | string     | yes      | Identifier; also the state filename basename.    |
-| `description` | string     | no       | Shown in `oprun list`.                           |
-| `vars`        | list       | no       | Prompted at flow start.                          |
-| `nodes`       | list       | yes      | Top-level node sequence.                         |
+| Field            | Type    | Required | Notes                                                                                  |
+|------------------|---------|----------|----------------------------------------------------------------------------------------|
+| `name`           | string  | yes      | Identifier; also the state filename basename.                                          |
+| `description`    | string  | no       | Shown in `oprun list`.                                                                 |
+| `from_repo_root` | boolean | no       | Resolve relative `dir:` and the default `exec` cwd from the `.git` ancestor of cwd. See [section 2.1](#21-from_repo_root--resolve-dir-from-the-monorepo-root). |
+| `vars`           | list    | no       | Prompted at flow start.                                                                |
+| `nodes`          | list    | yes      | Top-level node sequence.                                                               |
 
 ### Var
 
@@ -488,6 +543,8 @@ valid on `exec`).
 | Multi-select selection lost / showing wrong type  | Same variable name used by both a single-select and multi-select. Rename one.                 |
 | `when:` always runs the node                      | The captured value is something other than the falsy set (`""`, `no`, `false`, `0`, `off`). Echo `no` (not e.g. `0` then later `disabled`) to be safe. |
 | `options_cmd` shows no options                    | The command produced no stdout lines. oprun raises `options_cmd produced no options` rather than running the choose with an empty list. |
+| `from_repo_root: no .git ancestor found`          | The toggle is on but no `.git` was found within 10 levels above cwd, or the walk was stopped by the system-parent blocklist. Either run from inside the repo, or drop the toggle. |
+| Relative `dir:` resolves to the wrong place after enabling `from_repo_root` | Pre-existing relative paths were written assuming cwd-based resolution. Either rewrite them relative to the repo root, or make them absolute. |
 
 ---
 

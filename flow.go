@@ -11,6 +11,12 @@ type Flow struct {
 	Description string    `yaml:"description,omitempty"`
 	Vars        []VarDecl `yaml:"vars,omitempty"`
 	Nodes       []Node    `yaml:"nodes"`
+
+	// FromRepoRoot, when true, makes relative `dir:` values and the default
+	// cwd for `exec` nodes resolve from the nearest ancestor containing a
+	// `.git` entry instead of the process's cwd. The walk is capped at 10
+	// levels and refuses to ascend past well-known system directories.
+	FromRepoRoot bool `yaml:"from_repo_root,omitempty"`
 }
 
 type VarDecl struct {
