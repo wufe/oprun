@@ -65,6 +65,10 @@
         "description": {
           "type": "string",
           "description": "Free-form human-readable note."
+        },
+        "when": {
+          "type": "string",
+          "description": "Optional gate. Runs through {var} substitution and is evaluated as string-truthy: empty / no / false / 0 / off (case-insensitive, trimmed) skip the node; anything else runs it. Applies to every node type."
         }
       },
       "allOf": [

@@ -77,6 +77,11 @@ submitted to `~/.local/state/oprun/<flow-name>.json` (respecting
 
 ## Writing flows
 
+> **Full step-by-step guide**: [`FLOWS.md`](./FLOWS.md). It covers every node type
+> in detail, variable lifecycle, persistence rules, conditional execution with
+> `when:`, a cookbook of common patterns, and a troubleshooting table. The
+> section below is a tour; reach for `FLOWS.md` when you're actually authoring.
+
 A flow has a name, an optional set of variables prompted up-front, and an
 ordered list of nodes. The example below tags a release, optionally runs
 tests, builds for one or more targets, and uploads the resulting artifacts —
@@ -141,6 +146,7 @@ via the tab-separator) and upload each one.
 - Branch subtrees (`on_yes`, `on_no`, `options[].do`, `foreach.do`) are nested node lists — completing one falls through to the parent's next sibling.
 - `type: goto` jumps anywhere by `id`; execution resumes linearly from there.
 - Omitting `on_yes`/`on_no` on a confirm is equivalent to "do nothing on that answer, fall through" — a common pattern.
+- `when:` on any node gates whether it runs. The string is run through `{var}` substitution and evaluated as truthy: empty / `no` / `false` / `0` / `off` (case-insensitive) skip the node; anything else runs it. Useful for gating on a flag captured by an earlier `exec` — e.g. `when: "{rebuilt}"` after capturing `rebuilt: yes|no` in a `confirm`'s `on_yes`/`on_no` branches.
 
 ### Node types
 

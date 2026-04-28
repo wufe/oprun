@@ -13,6 +13,16 @@ import (
 
 var varRE = regexp.MustCompile(`\{([a-zA-Z_][a-zA-Z0-9_]*)\}`)
 
+// truthy decides whether a `when:` expression (after substitution) lets the
+// node run. Falsy values mirror common shell/yaml conventions.
+func truthy(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "no", "false", "0", "off":
+		return false
+	}
+	return true
+}
+
 type gotoSignal struct{ id string }
 
 func (g *gotoSignal) Error() string { return "goto " + g.id }
@@ -131,6 +141,15 @@ func (r *Runner) runSeq(nodes []Node) error {
 }
 
 func (r *Runner) runNode(n *Node) error {
+	if n.When != "" {
+		v, err := r.subst(n.When)
+		if err != nil {
+			return err
+		}
+		if !truthy(v) {
+			return nil
+		}
+	}
 	switch n.Type {
 	case "exec":
 		return r.runExec(n)

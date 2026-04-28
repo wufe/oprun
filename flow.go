@@ -26,6 +26,11 @@ type Node struct {
 	Type        string `yaml:"type"`
 	Description string `yaml:"description,omitempty"`
 
+	// when, if set, gates the whole node: the string is run through {var}
+	// substitution and evaluated as truthy ("" / "no" / "false" / "0" / "off"
+	// = skip, anything else = run). Applies to every node type.
+	When string `yaml:"when,omitempty"`
+
 	// exec
 	Run     string `yaml:"run,omitempty"`
 	Dir     string `yaml:"dir,omitempty"`
