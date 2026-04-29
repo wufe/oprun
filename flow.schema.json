@@ -50,6 +50,11 @@
         "default": {
           "type": "string",
           "description": "Fallback default when nothing is saved from a previous run."
+        },
+        "lazy": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the prompt is deferred until the variable is first referenced via {name} substitution. The decl's prompt/default are reused at first reference. If a saved value from a previous run exists, the lazy prompt is skipped entirely. Use this for vars only some branches need."
         }
       }
     },
@@ -229,13 +234,26 @@
 
     "option": {
       "type": "object",
-      "description": "A static choice under `choose.options`. Must define exactly one of `do` or `goto` (or neither, to simply store the selection and fall through).",
-      "required": ["label"],
+      "description": "A static entry under `choose.options`. Either a real selectable option (`label` + optional `do`/`goto`) or a non-selectable group header (`header`). Set exactly one of `label` / `header`.",
       "additionalProperties": false,
+      "oneOf": [
+        { "required": ["label"] },
+        { "required": ["header"] }
+      ],
       "properties": {
         "label": {
           "type": "string",
           "description": "Displayed and stored value for this option."
+        },
+        "header": {
+          "type": "string",
+          "description": "Non-selectable group header. Renders in a distinct (bold/dim) style; the cursor skips over it and it cannot be toggled. When set, `label`, `do`, and `goto` are ignored."
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Visual nesting depth (each level = 4 spaces of indent). Set on a `header` entry; the depth applies to that header and to every subsequent option until another header changes it. No effect on non-header options."
         },
         "do": {
           "type": "array",

@@ -23,6 +23,12 @@ type VarDecl struct {
 	Name    string `yaml:"name"`
 	Prompt  string `yaml:"prompt,omitempty"`
 	Default string `yaml:"default,omitempty"`
+
+	// Lazy, when true, defers the prompt until the variable is first
+	// referenced (via {name} substitution). The decl's prompt/default are
+	// reused at first reference. If a saved value from a previous run
+	// exists, the prompt is skipped entirely.
+	Lazy bool `yaml:"lazy,omitempty"`
 }
 
 // Node is a discriminated union keyed on Type. Only fields relevant to the
@@ -63,9 +69,19 @@ type Node struct {
 }
 
 type Option struct {
-	Label string `yaml:"label"`
+	Label string `yaml:"label,omitempty"`
 	Do    []Node `yaml:"do,omitempty"`
 	Goto  string `yaml:"goto,omitempty"`
+
+	// Header, when non-empty, turns this option into a non-selectable group
+	// label. The cursor skips past it and it cannot be toggled. `label`,
+	// `do`, and `goto` are ignored when `header` is set.
+	Header string `yaml:"header,omitempty"`
+
+	// Depth sets the visual indent (depth*4 spaces) for this header and
+	// every subsequent option until the next header sets a new depth.
+	// Default 0. Has no effect on non-header options.
+	Depth int `yaml:"depth,omitempty"`
 }
 
 func LoadFlow(data []byte) (*Flow, error) {

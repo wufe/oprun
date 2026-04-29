@@ -163,6 +163,9 @@ func (r *Runner) Run() error {
 	}
 
 	for _, v := range r.flow.Vars {
+		if v.Lazy {
+			continue
+		}
 		p := v.Prompt
 		if p == "" {
 			p = v.Name
@@ -382,8 +385,14 @@ func (r *Runner) runChoose(n *Node) error {
 			return fmt.Errorf("options_cmd produced no options")
 		}
 	} else {
+		curDepth := 0
 		for _, o := range n.Options {
-			choices = append(choices, Choice{Label: o.Label, Value: o.Label})
+			if o.Header != "" {
+				curDepth = max(o.Depth, 0)
+				choices = append(choices, Choice{Label: o.Header, IsHeader: true, Depth: curDepth})
+				continue
+			}
+			choices = append(choices, Choice{Label: o.Label, Value: o.Label, Depth: curDepth})
 		}
 	}
 
@@ -538,7 +547,23 @@ func (r *Runner) subst(s string) (string, error) {
 				return strings.Join(v, " ")
 			}
 		}
-		val, err := r.prompt.Input(name, "")
+		// First-reference prompt. Reuse the decl's prompt/default if the
+		// var was declared (typically with `lazy: true`); otherwise fall
+		// back to a plain name-only prompt.
+		label, def := name, ""
+		for _, d := range r.flow.Vars {
+			if d.Name == name {
+				if d.Prompt != "" {
+					label = d.Prompt
+				}
+				def = d.Default
+				if saved, ok := r.state.StringVars[name]; ok && saved != "" {
+					def = saved
+				}
+				break
+			}
+		}
+		val, err := r.prompt.Input(label, def)
 		if err != nil {
 			substErr = err
 			return m

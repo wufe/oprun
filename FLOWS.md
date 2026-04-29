@@ -72,6 +72,8 @@ Three things to internalize:
   schema-driven completion and validation. Always include it.
 - `vars:` are asked **before** the first node runs. They are good for inputs
   the whole flow depends on (target environment, username, version tag).
+  Mark a var with `lazy: true` to defer its prompt until first `{name}`
+  reference — useful when only some branches need it (see section 2.2).
 - `nodes:` is an ordered list. Execution flows top-to-bottom; nested branch
   subtrees fall through to the parent's next sibling when they finish.
 
@@ -95,14 +97,14 @@ Set `from_repo_root: true` at the flow's top level and oprun will:
    - Absolute `dir: /tmp` → used as-is.
 4. The same base applies to `options_cmd` shells used by dynamic `choose`.
 
-Example: the user starts oprun from `/home/wufe/cubbit/tools/`, with `.git` at
-`/home/wufe/cubbit/.git`:
+Example: the user starts oprun from `/home/alice/myrepo/tools/`, with `.git`
+at `/home/alice/myrepo/.git`:
 
-| `dir:` value         | feature off (cwd resolution) | feature on (repo-root resolution) |
-|----------------------|------------------------------|------------------------------------|
-| omitted              | `/home/wufe/cubbit/tools/`   | `/home/wufe/cubbit/`               |
-| `tools/efesto`       | `/home/wufe/cubbit/tools/tools/efesto` | `/home/wufe/cubbit/tools/efesto` |
-| `/opt/builds`        | `/opt/builds`                | `/opt/builds`                      |
+| `dir:` value         | feature off (cwd resolution)              | feature on (repo-root resolution)   |
+|----------------------|-------------------------------------------|--------------------------------------|
+| omitted              | `/home/alice/myrepo/tools/`               | `/home/alice/myrepo/`                |
+| `tools/build`        | `/home/alice/myrepo/tools/tools/build`    | `/home/alice/myrepo/tools/build`     |
+| `/opt/builds`        | `/opt/builds`                             | `/opt/builds`                        |
 
 When the toggle is off (default), the original cwd-based behaviour is
 preserved exactly — relative `dir:` values are passed through to bash, which
@@ -117,10 +119,11 @@ resolves them against the inherited cwd.
 | Mechanism                     | When it fires            | Example                                              |
 |-------------------------------|--------------------------|------------------------------------------------------|
 | Top-level `vars:`             | Once, at flow start      | `vars: [{name: env, prompt: Env?}]`                  |
+| Top-level `vars:` with `lazy: true` | First `{name}` reference, only if no saved value | `vars: [{name: user, prompt: Docker user, lazy: true}]` |
 | `input` node                  | When the node runs       | `- {type: input, store: tag, prompt: Tag?}`          |
 | `exec` with `capture:`        | After the command exits  | `- {run: git rev-parse HEAD, capture: sha}`          |
 | `choose` with `store:`        | After selection          | `- {type: choose, ..., store: target}`               |
-| Lazy `{name}` reference       | First read of an unset var | `run: deploy {env}`  (prompts if `env` is unset)   |
+| Lazy `{name}` reference (undeclared) | First read of an unset var | `run: deploy {env}`  (prompts if `env` is unset)   |
 
 ### 3.2 Referencing variables
 
@@ -244,6 +247,54 @@ Every node accepts these top-level fields:
   required** for that to work.
 - An optional `store:` on a static choose writes the selection to a variable
   too (string for single-select, list for multi-select).
+
+#### Group headers
+
+Use `header:` (instead of `label:`) on an entry to insert a non-selectable
+group label. The cursor skips over headers, they cannot be toggled, and they
+render in a distinct (bold/dim) style:
+
+```yaml
+- type: choose
+  prompt: What to do?
+  multi: true
+  options:
+    - header: BUILD
+    - label: compile
+      do:
+        - dir: services/api
+          run: make build
+    - header: DOCS
+    - label: regenerate
+      do:
+        - dir: services/api
+          run: make docs
+```
+
+Each option entry sets exactly one of `label:` / `header:`. Header entries
+ignore `do:`/`goto:`. As soon as any option has `header:` set, the choose
+prompt switches from `huh`'s default widget to a small custom Bubble Tea
+selector that handles the cursor-skip and toggle-rejection semantics.
+
+Headers also accept a `depth:` field (integer, default 0) that visually
+nests the header and every subsequent option by `depth*4` spaces, until
+the next header changes it:
+
+```yaml
+options:
+  - header: BUILD
+  - label: docker
+  - header: TESTS
+    depth: 1
+  - label: unit          # rendered indented 4 spaces
+  - label: integration   # also 4 spaces
+  - header: DEPLOY
+    depth: 0             # back to no indent
+  - label: staging
+```
+
+`depth:` is a no-op on non-header options; the renderer simply tracks the
+depth of the most recent header and applies it to every line below.
 
 ### 4.4 `choose` — dynamic options (`options_cmd`)
 
@@ -525,11 +576,13 @@ valid on `exec`).
 
 ### Option (under static `choose.options`)
 
-| Field   | Type   | Notes                                                        |
-|---------|--------|--------------------------------------------------------------|
-| `label` | string | Displayed and stored value. Required.                        |
-| `do`    | list   | Subtree run on selection. Mutually exclusive with `goto`.    |
-| `goto`  | string | Top-level node id to jump to on selection.                   |
+| Field    | Type   | Notes                                                                                            |
+|----------|--------|--------------------------------------------------------------------------------------------------|
+| `label`  | string | Displayed and stored value. Required unless `header` is set.                                     |
+| `header` | string | Non-selectable group label. Cursor skips it; cannot be toggled. Mutually exclusive with `label`. |
+| `depth`  | int    | On a `header`, the visual indent (depth*4 spaces) for the header and every option below it until another header sets a new depth. Default 0. No effect on non-header entries. |
+| `do`     | list   | Subtree run on selection. Mutually exclusive with `goto`. Ignored on `header` entries.           |
+| `goto`   | string | Top-level node id to jump to on selection. Ignored on `header` entries.                          |
 
 ---
 
