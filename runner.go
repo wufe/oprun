@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -385,14 +386,23 @@ func (r *Runner) runChoose(n *Node) error {
 			return fmt.Errorf("options_cmd produced no options")
 		}
 	} else {
+		// Static options: each selectable choice carries its position in
+		// n.Options as its internal Value. This keeps duplicate labels (e.g.
+		// "execute tests" under two different group headers) selectable as
+		// distinct entries — the prompt receives unique values, and the
+		// runner matches selections back by position rather than label.
 		curDepth := 0
-		for _, o := range n.Options {
+		for i, o := range n.Options {
 			if o.Header != "" {
 				curDepth = max(o.Depth, 0)
 				choices = append(choices, Choice{Label: o.Header, IsHeader: true, Depth: curDepth})
 				continue
 			}
-			choices = append(choices, Choice{Label: o.Label, Value: o.Label, Depth: curDepth})
+			choices = append(choices, Choice{
+				Label: o.Label,
+				Value: strconv.Itoa(i),
+				Depth: curDepth,
+			})
 		}
 	}
 
@@ -408,7 +418,10 @@ func (r *Runner) runChoose(n *Node) error {
 		}
 	} else if n.ID != "" {
 		if v, ok := r.state.Choices[n.ID]; ok {
-			defaults = v
+			// State stores labels for human readability. Translate each saved
+			// label to the next not-yet-claimed option index with that label,
+			// so duplicates round-trip to distinct positions.
+			defaults = staticLabelsToIndexValues(n.Options, v)
 		}
 	}
 	if len(defaults) > 0 {
@@ -444,36 +457,65 @@ func (r *Runner) runChoose(n *Node) error {
 		return nil
 	}
 
-	if n.ID != "" {
-		r.state.Choices[n.ID] = sel
+	// Static: translate index-valued selections back to (option, label) pairs.
+	selIndices := make([]int, 0, len(sel))
+	selLabels := make([]string, 0, len(sel))
+	for _, s := range sel {
+		idx, err := strconv.Atoi(s)
+		if err != nil || idx < 0 || idx >= len(n.Options) || n.Options[idx].Header != "" {
+			return fmt.Errorf("static choose: invalid selection %q", s)
+		}
+		selIndices = append(selIndices, idx)
+		selLabels = append(selLabels, n.Options[idx].Label)
 	}
 
-	for _, s := range sel {
-		var matched *Option
-		for i := range n.Options {
-			if n.Options[i].Label == s {
-				matched = &n.Options[i]
-				break
-			}
+	if n.ID != "" {
+		r.state.Choices[n.ID] = selLabels
+	}
+
+	for _, idx := range selIndices {
+		o := &n.Options[idx]
+		if o.Goto != "" {
+			return &gotoSignal{id: o.Goto}
 		}
-		if matched == nil {
-			return fmt.Errorf("unknown choice %q", s)
-		}
-		if matched.Goto != "" {
-			return &gotoSignal{id: matched.Goto}
-		}
-		if err := r.runSeq(matched.Do); err != nil {
+		if err := r.runSeq(o.Do); err != nil {
 			return err
 		}
 	}
 	if n.Store != "" {
 		if n.Multi {
-			r.vars[n.Store] = sel
+			r.vars[n.Store] = selLabels
 		} else {
-			r.vars[n.Store] = sel[0]
+			r.vars[n.Store] = selLabels[0]
 		}
 	}
 	return nil
+}
+
+// staticLabelsToIndexValues converts a list of saved labels (as persisted in
+// state.Choices) into the matching index-valued selection strings used by the
+// static-choose prompt. Each label is greedily matched against the next
+// unclaimed option with that label, so duplicate labels recover distinct
+// positions in selection order. Unknown labels are dropped.
+func staticLabelsToIndexValues(opts []Option, labels []string) []string {
+	if len(labels) == 0 {
+		return nil
+	}
+	used := make(map[int]bool, len(labels))
+	out := make([]string, 0, len(labels))
+	for _, label := range labels {
+		for i, o := range opts {
+			if o.Header != "" || used[i] {
+				continue
+			}
+			if o.Label == label {
+				used[i] = true
+				out = append(out, strconv.Itoa(i))
+				break
+			}
+		}
+	}
+	return out
 }
 
 func (r *Runner) runExec(n *Node) error {
