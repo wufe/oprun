@@ -418,10 +418,10 @@ func (r *Runner) runChoose(n *Node) error {
 		}
 	} else if n.ID != "" {
 		if v, ok := r.state.Choices[n.ID]; ok {
-			// State stores labels for human readability. Translate each saved
-			// label to the next not-yet-claimed option index with that label,
-			// so duplicates round-trip to distinct positions.
-			defaults = staticLabelsToIndexValues(n.Options, v)
+			// State stores stringified indices (new format). For backward
+			// compat with state files written before that change, plain
+			// labels still resolve via greedy match.
+			defaults = staticDefaultsToIndexValues(n.Options, v)
 		}
 	}
 	if len(defaults) > 0 {
@@ -470,7 +470,11 @@ func (r *Runner) runChoose(n *Node) error {
 	}
 
 	if n.ID != "" {
-		r.state.Choices[n.ID] = selLabels
+		saved := make([]string, 0, len(selIndices))
+		for _, idx := range selIndices {
+			saved = append(saved, strconv.Itoa(idx))
+		}
+		r.state.Choices[n.ID] = saved
 	}
 
 	for _, idx := range selIndices {
@@ -492,23 +496,36 @@ func (r *Runner) runChoose(n *Node) error {
 	return nil
 }
 
-// staticLabelsToIndexValues converts a list of saved labels (as persisted in
-// state.Choices) into the matching index-valued selection strings used by the
-// static-choose prompt. Each label is greedily matched against the next
-// unclaimed option with that label, so duplicate labels recover distinct
-// positions in selection order. Unknown labels are dropped.
-func staticLabelsToIndexValues(opts []Option, labels []string) []string {
-	if len(labels) == 0 {
+// staticDefaultsToIndexValues converts saved state.Choices entries into the
+// matching index-valued selection strings used by the static-choose prompt.
+// New entries are stringified option indices; old entries are bare labels
+// (state files written before the duplicate-label fix). Each entry is
+// greedily matched against the next unclaimed non-header option, so
+// duplicate labels in the legacy format still recover distinct positions in
+// selection order. Unknown / out-of-range entries are dropped.
+func staticDefaultsToIndexValues(opts []Option, saved []string) []string {
+	if len(saved) == 0 {
 		return nil
 	}
-	used := make(map[int]bool, len(labels))
-	out := make([]string, 0, len(labels))
-	for _, label := range labels {
+	used := make(map[int]bool, len(saved))
+	out := make([]string, 0, len(saved))
+	for _, s := range saved {
+		// New format: stringified index.
+		if idx, err := strconv.Atoi(s); err == nil &&
+			idx >= 0 && idx < len(opts) &&
+			opts[idx].Header == "" &&
+			!used[idx] {
+			used[idx] = true
+			out = append(out, strconv.Itoa(idx))
+			continue
+		}
+		// Legacy format: bare label. Match the next unclaimed option with
+		// that label.
 		for i, o := range opts {
 			if o.Header != "" || used[i] {
 				continue
 			}
-			if o.Label == label {
+			if o.Label == s {
 				used[i] = true
 				out = append(out, strconv.Itoa(i))
 				break
