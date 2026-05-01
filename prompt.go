@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -27,34 +29,25 @@ func (Prompt) Confirm(q string, def bool) (bool, error) {
 	return v, err
 }
 
-// Choose renders a select / multi-select. When any choice has IsHeader=true,
-// we use a custom Bubble Tea model that skips headers on cursor movement and
-// rejects toggles on them. Otherwise we fall through to huh's polished widgets
-// so plain choose flows look unchanged.
+// Choose renders a select / multi-select. Multi-select always uses the
+// custom Bubble Tea model so we can track and display selection order
+// (selected items render `[1]`, `[2]`, … in the order they were toggled on,
+// and downstream consumers receive them in that same order). Single-select
+// uses the same custom model when headers are present (cursor must skip
+// them), and otherwise falls through to huh's default widget.
 func (Prompt) Choose(header string, choices []Choice, multi bool, defaults []string) ([]string, error) {
-	hasHeaders := false
+	if multi {
+		return chooseTUI(header, choices, multi, defaults)
+	}
 	for _, c := range choices {
 		if c.IsHeader {
-			hasHeaders = true
-			break
+			return chooseTUI(header, choices, multi, defaults)
 		}
-	}
-	if hasHeaders {
-		return chooseWithHeaders(header, choices, multi, defaults)
 	}
 
 	opts := make([]huh.Option[string], len(choices))
 	for i, c := range choices {
 		opts[i] = huh.NewOption(c.Label, c.Value)
-	}
-	if multi {
-		v := append([]string(nil), defaults...)
-		err := huh.NewMultiSelect[string]().
-			Title(header).
-			Options(opts...).
-			Value(&v).
-			Run()
-		return v, err
 	}
 	v := ""
 	if len(defaults) > 0 {
@@ -83,7 +76,11 @@ func (Prompt) Input(prompt, def string) (string, error) {
 	return v, err
 }
 
-// --- custom Bubble Tea selector for header-aware choose ---
+// --- custom Bubble Tea selector ---
+// Used for every multi-select (so selection order can be tracked and shown
+// as 1-based numbers next to each choice) and for any single-select that
+// contains group headers (so the cursor can skip them and toggles can be
+// rejected on them).
 
 var (
 	headerLineStyle = lipgloss.NewStyle().
@@ -100,42 +97,72 @@ var (
 )
 
 type chooseModel struct {
-	title     string
-	items     []Choice
-	multi     bool
-	cursor    int
-	selected  map[int]bool
-	done      bool
-	cancelled bool
+	title    string
+	items    []Choice
+	multi    bool
+	cursor   int
+	selected map[int]int // item index → 1-based selection order (multi); for single-select, the lone selection has order 1
+	// orderWidth is the digit width of the largest possible selection order
+	// (= number of selectable items). Used so `[ 1]` and `[10]` align in a
+	// list that has 10+ options.
+	orderWidth int
+	done       bool
+	cancelled  bool
 }
 
 func newChooseModel(title string, items []Choice, multi bool, defaults []string) chooseModel {
-	defSet := make(map[string]bool, len(defaults))
-	for _, d := range defaults {
-		defSet[d] = true
-	}
-	sel := map[int]bool{}
+	sel := map[int]int{}
 	cursor := -1
+	selectable := 0
+	valueToIdx := make(map[string]int, len(items))
 	for i, it := range items {
 		if it.IsHeader {
 			continue
 		}
+		selectable++
 		if cursor < 0 {
 			cursor = i
 		}
-		if defSet[it.Value] {
-			sel[i] = true
+		// First occurrence wins — static-choose values are unique per
+		// option index, dynamic-choose values are user-supplied (caller's
+		// problem if they collide).
+		if _, dup := valueToIdx[it.Value]; !dup {
+			valueToIdx[it.Value] = i
+		}
+	}
+	// Apply defaults in their incoming order so selection order survives
+	// across runs. For single-select we honour at most one default and also
+	// place the cursor on it so the user lands on their previous choice.
+	if multi {
+		order := 1
+		for _, d := range defaults {
+			i, ok := valueToIdx[d]
+			if !ok {
+				continue
+			}
+			if _, already := sel[i]; already {
+				continue
+			}
+			sel[i] = order
+			order++
+		}
+	} else if len(defaults) > 0 {
+		if i, ok := valueToIdx[defaults[0]]; ok {
+			sel[i] = 1
+			cursor = i
 		}
 	}
 	if cursor < 0 {
 		cursor = 0
 	}
+	width := max(len(strconv.Itoa(selectable)), 1)
 	return chooseModel{
-		title:    title,
-		items:    items,
-		multi:    multi,
-		cursor:   cursor,
-		selected: sel,
+		title:      title,
+		items:      items,
+		multi:      multi,
+		cursor:     cursor,
+		selected:   sel,
+		orderWidth: width,
 	}
 }
 
@@ -169,7 +196,18 @@ func (m chooseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cursor = m.nextSelectable(m.cursor, -1)
 	case " ", "x":
 		if m.multi && m.cursor >= 0 && m.cursor < len(m.items) && !m.items[m.cursor].IsHeader {
-			m.selected[m.cursor] = !m.selected[m.cursor]
+			if removed, ok := m.selected[m.cursor]; ok {
+				// Toggle off: remove and shift later selections down so
+				// the displayed numbering stays contiguous.
+				delete(m.selected, m.cursor)
+				for k, ord := range m.selected {
+					if ord > removed {
+						m.selected[k] = ord - 1
+					}
+				}
+			} else {
+				m.selected[m.cursor] = len(m.selected) + 1
+			}
 		}
 	case "enter":
 		if m.multi {
@@ -177,7 +215,7 @@ func (m chooseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		if m.cursor >= 0 && m.cursor < len(m.items) && !m.items[m.cursor].IsHeader {
-			m.selected = map[int]bool{m.cursor: true}
+			m.selected = map[int]int{m.cursor: 1}
 			m.done = true
 			return m, tea.Quit
 		}
@@ -207,10 +245,10 @@ func (m chooseModel) View() string {
 			line.WriteString("  ")
 		}
 		if m.multi {
-			if m.selected[i] {
-				line.WriteString("[x] ")
+			if ord, ok := m.selected[i]; ok {
+				fmt.Fprintf(&line, "[%*d] ", m.orderWidth, ord)
 			} else {
-				line.WriteString("[ ] ")
+				fmt.Fprintf(&line, "[%*s] ", m.orderWidth, "")
 			}
 		}
 		line.WriteString(c.Label)
@@ -223,7 +261,7 @@ func (m chooseModel) View() string {
 		b.WriteString("\n")
 	}
 	if m.multi {
-		b.WriteString(helpStyle.Render("space: toggle  ·  enter: confirm  ·  esc: cancel"))
+		b.WriteString(helpStyle.Render("space: toggle (numbered in selection order)  ·  enter: confirm  ·  esc: cancel"))
 	} else {
 		b.WriteString(helpStyle.Render("enter: select  ·  esc: cancel"))
 	}
@@ -232,23 +270,30 @@ func (m chooseModel) View() string {
 
 func (m chooseModel) result() []string {
 	if !m.multi {
-		for i, ok := range m.selected {
-			if ok {
-				return []string{m.items[i].Value}
-			}
+		for i := range m.selected {
+			return []string{m.items[i].Value}
 		}
 		return nil
 	}
-	out := make([]string, 0, len(m.selected))
-	for i := range m.items {
-		if m.selected[i] && !m.items[i].IsHeader {
-			out = append(out, m.items[i].Value)
+	type entry struct{ idx, ord int }
+	entries := make([]entry, 0, len(m.selected))
+	for i, ord := range m.selected {
+		if m.items[i].IsHeader {
+			continue
 		}
+		entries = append(entries, entry{i, ord})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].ord < entries[j].ord
+	})
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		out[i] = m.items[e.idx].Value
 	}
 	return out
 }
 
-func chooseWithHeaders(title string, items []Choice, multi bool, defaults []string) ([]string, error) {
+func chooseTUI(title string, items []Choice, multi bool, defaults []string) ([]string, error) {
 	m := newChooseModel(title, items, multi, defaults)
 	final, err := tea.NewProgram(m).Run()
 	if err != nil {

@@ -79,7 +79,7 @@ submitted to `~/.local/state/oprun/<flow-name>.json` (respecting
 `$XDG_STATE_HOME` if set). On the next run those values are pre-filled:
 
 - **declared `vars:`** and `input` nodes are re-asked with the last value as the editable default
-- **`choose`** pre-selects what you picked last time (filtered against the currently available options)
+- **`choose`** pre-selects what you picked last time (filtered against the currently available options); for `multi: true`, the prior selection order is restored too — each selected option shows its 1-based pick number (`[1]`, `[2]`, …)
 - **`confirm`** pre-highlights your last Yes/No (keyed by node `id` — no id, no persistence)
 - **`{foo}` lazy references** skip the prompt entirely if a value was saved
 
@@ -165,7 +165,7 @@ via the tab-separator) and upload each one.
 |-----------|---------------------------------------------|-------------------------------------------------------------------------------|
 | `exec`    | `run`                                       | Default when `type` is omitted. Runs via `bash -c`. Optional `dir`, `capture`.|
 | `confirm` | `prompt`                                    | Optional `on_yes`, `on_no`. Answer persisted if node has `id`.                |
-| `choose`  | `prompt` + one of `options` or `options_cmd`| `multi: true` for multi-select. Store selection with `store:`.                |
+| `choose`  | `prompt` + one of `options` or `options_cmd`| `multi: true` for multi-select; selection order is preserved (numbered in the UI, in the executed `do:` subtrees, and in the stored list). Store selection with `store:`.                |
 | `input`   | `store`                                     | Prompts for a string; stored in the named variable.                           |
 | `goto`    | `goto`                                      | Target `id` must exist at the top level.                                      |
 | `foreach` | `var`, `do`                                 | Iterates a list variable (typically from a multi-select `choose`).            |

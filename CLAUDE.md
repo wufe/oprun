@@ -60,6 +60,7 @@ These behave differently in ways that aren't obvious from the YAML surface:
 
 - **Static** (`options:`): each option carries its own subtree (`do`) or `goto`; on `multi: true`, all selected options' subtrees run in selection order. Defaults come from `state.Choices[node.id]`.
 - **Dynamic** (`options_cmd:`): no per-option subtrees — the command's stdout lines are just labels (or `label\tvalue` pairs). The selection is written to `store` and that's it. Defaults come from `state.ListVars[store]` / `state.StringVars[store]`. Saved defaults are filtered against current options before being applied (so stale entries don't poison the prompt).
+- **Selection order is load-bearing for `multi: true`** (both static and dynamic). The custom Bubble Tea selector in `prompt.go` tracks the order in which items are toggled (`selected map[int]int`, value = 1-based pick order), renders each as `[N]` in that slot, and `result()` returns the values sorted by that order. The runner threads this all the way through: static `do:` subtrees execute in selection order, the `store` variable is a list in selection order, and `state.Choices` / `state.ListVars` persist that order. **Don't reintroduce huh's `MultiSelect` for the multi path** — it returns selections in option-list order and would silently drop the ordering contract. Single-select (no headers) still goes through huh because order is meaningless there.
 
 ### Flow discovery (`main.go`)
 

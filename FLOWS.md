@@ -241,12 +241,16 @@ Every node accepts these top-level fields:
 
 - Each option may have a `do:` subtree, a `goto:` (jumps to a top-level id),
   or neither (just records the selection and falls through).
-- With `multi: true`, all selected options' `do:` subtrees run in selection
-  order.
+- With `multi: true`, **selection order is significant**: as you toggle
+  options on, each gets a 1-based number (`[1]`, `[2]`, …) shown next to its
+  label. Selected options' `do:` subtrees run in that selection order, the
+  saved-state list and any `store:` variable are written in that order, and
+  on the next run the prompt repaints the same numbers so you can see your
+  prior ordering at a glance.
 - The selection is persisted under `state.Choices[<node id>]` — **id is
   required** for that to work.
 - An optional `store:` on a static choose writes the selection to a variable
-  too (string for single-select, list for multi-select).
+  too (string for single-select, list-in-selection-order for multi-select).
 
 #### Group headers
 
@@ -272,9 +276,11 @@ render in a distinct (bold/dim) style:
 ```
 
 Each option entry sets exactly one of `label:` / `header:`. Header entries
-ignore `do:`/`goto:`. As soon as any option has `header:` set, the choose
-prompt switches from `huh`'s default widget to a small custom Bubble Tea
-selector that handles the cursor-skip and toggle-rejection semantics.
+ignore `do:`/`goto:`. The custom Bubble Tea selector is used whenever
+`multi: true` (so selection order can be tracked) and also whenever any
+option has `header:` set (so the cursor can skip headers and toggles can be
+rejected on them); single-select choices without headers fall through to
+`huh`'s default widget.
 
 Headers also accept a `depth:` field (integer, default 0) that visually
 nests the header and every subsequent option by `depth*4` spaces, until
@@ -312,8 +318,11 @@ depth of the most recent header and applies it to every line below.
   Without a tab, the whole line is used for both.
 - Dynamic choose has **no per-option `do:` subtrees** — selections are written
   to `store` and that's it. Iterate over them with `foreach`.
+- With `multi: true`, the stored list is in **selection order**, and a
+  subsequent `foreach` walks it in that order.
 - Defaults are restored from the persisted variable, then **filtered against
-  the current option list** so stale entries don't poison the prompt.
+  the current option list** so stale entries don't poison the prompt; the
+  saved order is preserved when re-applying the defaults.
 
 ### 4.5 `input` — free-text string
 
@@ -430,8 +439,10 @@ On the next run:
 - `vars:` and `input` nodes pre-fill with the saved value (still re-asked, but
   the field is editable).
 - Static `choose` pre-highlights the saved selection (filtered against current
-  options).
-- Dynamic `choose` (with `store:`) pre-selects the saved value(s), filtered.
+  options); for `multi: true`, the per-option order numbers (`[1]`, `[2]`, …)
+  are restored so the prior selection order is visible immediately.
+- Dynamic `choose` (with `store:`) pre-selects the saved value(s), filtered,
+  preserving selection order for `multi: true`.
 - `confirm` pre-highlights the saved Yes/No when the node has an `id`.
 - Lazy `{var}` references **skip the prompt entirely** when the variable is
   already in the saved string vars.
