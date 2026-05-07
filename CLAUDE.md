@@ -46,7 +46,7 @@ Three storage layers exist; conflating them causes subtle bugs:
 
 | Where it lives | Set by | Keyed by | Persisted? |
 |----------------|--------|----------|------------|
-| `r.vars` (live `map[string]any`) | `vars:`, `input.store`, `exec.capture`, `choose.store`, lazy substitution | variable name | Yes, on every `Run()` exit (including errors) |
+| `r.vars` (live `map[string]any`) | `vars:`, `input.store`, `exec.capture` (string), `exec.capture_lines` (list), `choose.store`, lazy substitution | variable name | Yes, on every `Run()` exit (including errors) |
 | `state.Confirms` | `confirm` answers | **node `id`** (no id → not persisted) | Yes |
 | `state.Choices` | static `choose` selections | **node `id`** (no id → not persisted) | Yes |
 
@@ -59,8 +59,10 @@ State files live at `$XDG_STATE_HOME/oprun/<flow>.json` (default `~/.local/state
 These behave differently in ways that aren't obvious from the YAML surface:
 
 - **Static** (`options:`): each option carries its own subtree (`do`) or `goto`; on `multi: true`, all selected options' subtrees run in selection order. Defaults come from `state.Choices[node.id]`.
-- **Dynamic** (`options_cmd:`): no per-option subtrees — the command's stdout lines are just labels (or `label\tvalue` pairs). The selection is written to `store` and that's it. Defaults come from `state.ListVars[store]` / `state.StringVars[store]`. Saved defaults are filtered against current options before being applied (so stale entries don't poison the prompt).
+- **Dynamic from shell** (`options_cmd:`): no per-option subtrees — the command's stdout lines are just labels (or `label\tvalue` pairs). The selection is written to `store` and that's it. Defaults come from `state.ListVars[store]` / `state.StringVars[store]`. Saved defaults are filtered against current options before being applied (so stale entries don't poison the prompt).
+- **Dynamic from list var** (`options_var:`): same parsing rule and same defaults/persistence semantics as `options_cmd`, but the line list is read from `r.vars[name]` (a `[]string`, or a `string` treated as a one-item list via `r.toList`). Designed to compose with `exec.capture_lines`: extract once, present once, no re-running the extractor. The three sources are mutually exclusive — `runChoose` errors if more than one of `options` / `options_cmd` / `options_var` is set on the same node.
 - **Selection order is load-bearing for `multi: true`** (both static and dynamic). The custom Bubble Tea selector in `prompt.go` tracks the order in which items are toggled (`selected map[int]int`, value = 1-based pick order), renders each as `[N]` in that slot, and `result()` returns the values sorted by that order. The runner threads this all the way through: static `do:` subtrees execute in selection order, the `store` variable is a list in selection order, and `state.Choices` / `state.ListVars` persist that order. **Don't reintroduce huh's `MultiSelect` for the multi path** — it returns selections in option-list order and would silently drop the ordering contract. Single-select (no headers) still goes through huh because order is meaningless there.
+- **`a` (select-all toggle) is part of the multi-select contract.** In `chooseModel.Update`, pressing `a` either fills every unselected non-header item (preserving the order of any already-toggled selections and appending new ones in position order) or, if everything is already selected, clears the map. `prompt.go` is the single source of truth for that keybind; the runner is unaware.
 
 ### Flow discovery (`main.go`)
 

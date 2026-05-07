@@ -209,6 +209,34 @@ func (m chooseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected[m.cursor] = len(m.selected) + 1
 			}
 		}
+	case "a":
+		// Multi-select only: toggle "all on" / "all off". If every selectable
+		// item is already selected, clear; otherwise fill in the unselected
+		// items in position order while preserving the order of any that the
+		// user already toggled on individually.
+		if m.multi {
+			selectable := 0
+			for _, it := range m.items {
+				if !it.IsHeader {
+					selectable++
+				}
+			}
+			if len(m.selected) >= selectable {
+				m.selected = map[int]int{}
+			} else {
+				next := len(m.selected) + 1
+				for i, it := range m.items {
+					if it.IsHeader {
+						continue
+					}
+					if _, already := m.selected[i]; already {
+						continue
+					}
+					m.selected[i] = next
+					next++
+				}
+			}
+		}
 	case "enter":
 		if m.multi {
 			m.done = true
@@ -261,7 +289,7 @@ func (m chooseModel) View() string {
 		b.WriteString("\n")
 	}
 	if m.multi {
-		b.WriteString(helpStyle.Render("space: toggle (numbered in selection order)  ·  enter: confirm  ·  esc: cancel"))
+		b.WriteString(helpStyle.Render("space: toggle  ·  a: all on/off  ·  enter: confirm  ·  esc: cancel"))
 	} else {
 		b.WriteString(helpStyle.Render("enter: select  ·  esc: cancel"))
 	}

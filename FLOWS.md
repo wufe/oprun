@@ -122,6 +122,7 @@ resolves them against the inherited cwd.
 | Top-level `vars:` with `lazy: true` | First `{name}` reference, only if no saved value | `vars: [{name: user, prompt: Docker user, lazy: true}]` |
 | `input` node                  | When the node runs       | `- {type: input, store: tag, prompt: Tag?}`          |
 | `exec` with `capture:`        | After the command exits  | `- {run: git rev-parse HEAD, capture: sha}`          |
+| `exec` with `capture_lines:`  | After the command exits  | `- {run: ls tests/*.yaml, capture_lines: tests}` (writes a **list** var) |
 | `choose` with `store:`        | After selection          | `- {type: choose, ..., store: target}`               |
 | Lazy `{name}` reference (undeclared) | First read of an unset var | `run: deploy {env}`  (prompts if `env` is unset)   |
 
@@ -179,13 +180,29 @@ Every node accepts these top-level fields:
 ```yaml
 - run: make build
   dir: /path/to/project           # optional cwd
-  capture: build_output           # optional; trimmed stdout → variable
+  capture: build_output           # optional; trimmed stdout → string variable
 ```
 
 - Runs via `bash -c` (falls back to `sh` if bash is missing).
-- Stdin/stderr are inherited; stdout is also inherited unless `capture:` is
-  set, in which case stdout is teed to the terminal **and** captured.
-- Captured value is `strings.TrimSpace`d.
+- Stdin/stderr are inherited; stdout is also inherited unless one of
+  `capture:` / `capture_lines:` is set, in which case stdout is teed to the
+  terminal **and** captured.
+- `capture:` writes the trimmed stdout to a **string** variable.
+- `capture_lines:` writes a **list** variable: stdout is split on `\n`, each
+  line is `TrimSpace`d, empty lines are dropped. Pair with `foreach` to
+  iterate the result, or with `choose.options_var` to drive a picker:
+
+  ```yaml
+  - run: ls tests/*.yaml
+    capture_lines: tests          # list var
+
+  - type: foreach
+    var: tests
+    do:
+      - run: go test {tests}      # `as:` defaults to `tests`; here {tests} is one path per iteration
+  ```
+
+- `capture` and `capture_lines` are mutually exclusive on the same node.
 - A non-zero exit code aborts the flow. Use shell-level `|| true` if you want
   to ignore failures: `run: rm -f /tmp/x || true`.
 - `type: exec` may be omitted — bare `- run: ...` works.
@@ -302,7 +319,7 @@ options:
 `depth:` is a no-op on non-header options; the renderer simply tracks the
 depth of the most recent header and applies it to every line below.
 
-### 4.4 `choose` — dynamic options (`options_cmd`)
+### 4.4 `choose` — dynamic options (`options_cmd` / `options_var`)
 
 ```yaml
 - type: choose
@@ -319,10 +336,43 @@ depth of the most recent header and applies it to every line below.
 - Dynamic choose has **no per-option `do:` subtrees** — selections are written
   to `store` and that's it. Iterate over them with `foreach`.
 - With `multi: true`, the stored list is in **selection order**, and a
-  subsequent `foreach` walks it in that order.
+  subsequent `foreach` walks it in that order. In the picker, **press `a` to
+  toggle all options on / off** — useful for an "all by default, deselect to
+  skip" pattern; pressing `a` again clears every selection.
 - Defaults are restored from the persisted variable, then **filtered against
   the current option list** so stale entries don't poison the prompt; the
   saved order is preserved when re-applying the defaults.
+
+#### Sourcing options from an existing list variable (`options_var`)
+
+`options_var:` is the same shape as `options_cmd:`, but the option list comes
+from an in-memory list variable instead of a shell command. It pairs naturally
+with `exec.capture_lines`: extract the list once, then let the user pick from
+it without re-running the extractor.
+
+```yaml
+- run: |
+    yq '.tests[].name' suite.yaml
+  capture_lines: all_tests
+
+- type: choose
+  prompt: Which tests?
+  multi: true
+  options_var: all_tests          # consume the list var as options
+  store: tests                    # write the user's selection back
+```
+
+- Each list entry becomes an option, with the same `<label>\t<value>`
+  tab-split rule as `options_cmd`.
+- A string-shaped variable is treated as a one-item list (mirrors `foreach`).
+- An unset / empty list errors out — same shape as `options_cmd produced no
+  options`.
+- Default-restoration semantics match `options_cmd`: prior selections come
+  from `state.ListVars[store]` / `state.StringVars[store]`, filtered against
+  the currently-available list.
+
+`options`, `options_cmd`, and `options_var` are mutually exclusive — exactly
+one of the three is set per `choose` node.
 
 ### 4.5 `input` — free-text string
 
@@ -578,9 +628,9 @@ valid on `exec`).
 
 | Type      | Required          | Optional                              |
 |-----------|-------------------|---------------------------------------|
-| `exec`    | `run`             | `dir`, `capture`                      |
+| `exec`    | `run`             | `dir`, `capture`, `capture_lines` (mutually exclusive with `capture`) |
 | `confirm` | `prompt`          | `on_yes`, `on_no`                     |
-| `choose`  | `prompt` + (`options` xor `options_cmd`) | `multi`, `store`            |
+| `choose`  | `prompt` + exactly one of (`options`, `options_cmd`, `options_var`) | `multi`, `store` |
 | `input`   | `store`           | `prompt`                              |
 | `goto`    | `goto`            | —                                     |
 | `foreach` | `var`, `do`       | `as`                                  |

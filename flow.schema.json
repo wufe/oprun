@@ -103,9 +103,14 @@
               },
               "capture": {
                 "type": "string",
-                "description": "If set, the command's stdout (trimmed) is stored in the named variable and persisted."
+                "description": "If set, the command's stdout (trimmed) is stored in the named string variable and persisted. Mutually exclusive with capture_lines."
+              },
+              "capture_lines": {
+                "type": "string",
+                "description": "If set, the command's stdout is split on newlines, each line trimmed, empty lines dropped, and the resulting list stored in the named variable (and persisted). Pair with `foreach` to iterate, or with `choose.options_var` to feed it into a picker. Mutually exclusive with capture."
               }
-            }
+            },
+            "not": { "required": ["capture", "capture_lines"] }
           }
         },
         {
@@ -142,7 +147,8 @@
             "required": ["prompt"],
             "oneOf": [
               { "required": ["options"] },
-              { "required": ["options_cmd"] }
+              { "required": ["options_cmd"] },
+              { "required": ["options_var"] }
             ],
             "properties": {
               "prompt": {
@@ -152,20 +158,24 @@
               "multi": {
                 "type": "boolean",
                 "default": false,
-                "description": "Allow multiple selections. When true and `store` is set, the variable gets a list."
+                "description": "Allow multiple selections. When true and `store` is set, the variable gets a list. Press `a` in the picker to toggle all on / all off."
               },
               "store": {
                 "type": "string",
-                "description": "Optional variable name in which to store the selected value(s). Required on dynamic choose (options_cmd) if you want to reference the selection downstream."
+                "description": "Optional variable name in which to store the selected value(s). Required on dynamic choose (options_cmd / options_var) if you want to reference the selection downstream."
               },
               "options": {
                 "type": "array",
-                "description": "Static options. Each option may carry its own subtree (`do`) or a `goto`. Exclusive with options_cmd.",
+                "description": "Static options. Each option may carry its own subtree (`do`) or a `goto`. Exclusive with options_cmd / options_var.",
                 "items": { "$ref": "#/$defs/option" }
               },
               "options_cmd": {
                 "type": "string",
-                "description": "Dynamic options. Shell command whose stdout lines become options. A line of the form '<label>\\t<value>' splits into shown label + stored value; a line with no tab is used for both. Exclusive with options."
+                "description": "Dynamic options sourced from a shell command. Each non-empty stdout line becomes an option. A line of the form '<label>\\t<value>' splits into shown label + stored value; a line with no tab is used for both. Exclusive with options / options_var."
+              },
+              "options_var": {
+                "type": "string",
+                "description": "Dynamic options sourced from an existing list variable (typically populated by `exec.capture_lines`). Each list entry becomes an option, with the same '<label>\\t<value>' tab-split rule as options_cmd. A string-shaped variable is treated as a one-item list. Exclusive with options / options_cmd."
               }
             }
           }

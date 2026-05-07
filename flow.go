@@ -44,9 +44,10 @@ type Node struct {
 	When string `yaml:"when,omitempty"`
 
 	// exec
-	Run     string `yaml:"run,omitempty"`
-	Dir     string `yaml:"dir,omitempty"`
-	Capture string `yaml:"capture,omitempty"`
+	Run          string `yaml:"run,omitempty"`
+	Dir          string `yaml:"dir,omitempty"`
+	Capture      string `yaml:"capture,omitempty"`
+	CaptureLines string `yaml:"capture_lines,omitempty"`
 
 	// confirm
 	Prompt string `yaml:"prompt,omitempty"`
@@ -57,6 +58,7 @@ type Node struct {
 	Options    []Option `yaml:"options,omitempty"`
 	Multi      bool     `yaml:"multi,omitempty"`
 	OptionsCmd string   `yaml:"options_cmd,omitempty"`
+	OptionsVar string   `yaml:"options_var,omitempty"`
 	Store      string   `yaml:"store,omitempty"`
 
 	// goto

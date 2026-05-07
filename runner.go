@@ -358,11 +358,26 @@ func (r *Runner) runChoose(n *Node) error {
 		return err
 	}
 
+	sources := 0
+	if n.OptionsCmd != "" {
+		sources++
+	}
+	if n.OptionsVar != "" {
+		sources++
+	}
+	if len(n.Options) > 0 {
+		sources++
+	}
+	if sources > 1 {
+		return fmt.Errorf("choose: set exactly one of options / options_cmd / options_var")
+	}
+
 	var (
 		choices []Choice
 		dynamic bool
 	)
-	if n.OptionsCmd != "" {
+	switch {
+	case n.OptionsCmd != "":
 		dynamic = true
 		cmdStr, err := r.subst(n.OptionsCmd)
 		if err != nil {
@@ -385,7 +400,26 @@ func (r *Runner) runChoose(n *Node) error {
 		if len(choices) == 0 {
 			return fmt.Errorf("options_cmd produced no options")
 		}
-	} else {
+	case n.OptionsVar != "":
+		dynamic = true
+		lines, err := r.toList(n.OptionsVar)
+		if err != nil {
+			return fmt.Errorf("options_var: %w", err)
+		}
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			label, value := line, line
+			if idx := strings.IndexByte(line, '\t'); idx >= 0 {
+				label, value = line[:idx], line[idx+1:]
+			}
+			choices = append(choices, Choice{Label: label, Value: value})
+		}
+		if len(choices) == 0 {
+			return fmt.Errorf("options_var %q produced no options", n.OptionsVar)
+		}
+	default:
 		// Static options: each selectable choice carries its position in
 		// n.Options as its internal Value. This keeps duplicate labels (e.g.
 		// "execute tests" under two different group headers) selectable as
@@ -536,6 +570,9 @@ func staticDefaultsToIndexValues(opts []Option, saved []string) []string {
 }
 
 func (r *Runner) runExec(n *Node) error {
+	if n.Capture != "" && n.CaptureLines != "" {
+		return fmt.Errorf("exec: set at most one of capture / capture_lines")
+	}
 	cmdStr, err := r.subst(n.Run)
 	if err != nil {
 		return err
@@ -558,7 +595,8 @@ func (r *Runner) runExec(n *Node) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
 
-	if n.Capture != "" {
+	switch {
+	case n.Capture != "":
 		var buf bytes.Buffer
 		cmd.Stdout = io.MultiWriter(&buf, os.Stdout)
 		if err := cmd.Run(); err != nil {
@@ -567,13 +605,36 @@ func (r *Runner) runExec(n *Node) error {
 		val := strings.TrimSpace(buf.String())
 		r.vars[n.Capture] = val
 		fmt.Printf("  [captured %s = %q]\n", n.Capture, val)
-	} else {
+	case n.CaptureLines != "":
+		var buf bytes.Buffer
+		cmd.Stdout = io.MultiWriter(&buf, os.Stdout)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("exec failed: %w", err)
+		}
+		lines := splitLines(buf.String())
+		r.vars[n.CaptureLines] = lines
+		fmt.Printf("  [captured %s = %d line(s)]\n", n.CaptureLines, len(lines))
+	default:
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("exec failed: %w", err)
 		}
 	}
 	return nil
+}
+
+// splitLines splits stdout into a list of trimmed, non-empty lines. Mirrors the
+// "trimmed string" behaviour of `capture:` for each line.
+func splitLines(s string) []string {
+	out := []string{}
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
 }
 
 func (r *Runner) shellCapture(cmdStr, dir string) (string, error) {

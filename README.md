@@ -163,9 +163,9 @@ via the tab-separator) and upload each one.
 
 | type      | required fields                             | notes                                                                         |
 |-----------|---------------------------------------------|-------------------------------------------------------------------------------|
-| `exec`    | `run`                                       | Default when `type` is omitted. Runs via `bash -c`. Optional `dir`, `capture`.|
+| `exec`    | `run`                                       | Default when `type` is omitted. Runs via `bash -c`. Optional `dir`, `capture` (string var), `capture_lines` (list var, one entry per non-empty stdout line). |
 | `confirm` | `prompt`                                    | Optional `on_yes`, `on_no`. Answer persisted if node has `id`.                |
-| `choose`  | `prompt` + one of `options` or `options_cmd`| `multi: true` for multi-select; selection order is preserved (numbered in the UI, in the executed `do:` subtrees, and in the stored list). Store selection with `store:`.                |
+| `choose`  | `prompt` + exactly one of `options` / `options_cmd` / `options_var` | `multi: true` for multi-select; press `a` in the picker to toggle all on/off. Selection order is preserved (numbered in the UI, in the executed `do:` subtrees, and in the stored list). Store selection with `store:`. `options_var` consumes a list var (typically from `capture_lines`) as its option source. |
 | `input`   | `store`                                     | Prompts for a string; stored in the named variable.                           |
 | `goto`    | `goto`                                      | Target `id` must exist at the top level.                                      |
 | `foreach` | `var`, `do`                                 | Iterates a list variable (typically from a multi-select `choose`).            |
