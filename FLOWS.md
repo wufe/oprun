@@ -342,6 +342,12 @@ depth of the most recent header and applies it to every line below.
 - Defaults are restored from the persisted variable, then **filtered against
   the current option list** so stale entries don't poison the prompt; the
   saved order is preserved when re-applying the defaults.
+- **`default_all: true`** (multi-select only) pre-selects every non-header
+  option on the **first run only** — once anything is persisted to
+  `state.ListVars[store]` / `state.StringVars[store]`, that saved selection
+  takes over and `default_all` no longer fires. Pairs well with a glob-then-
+  pick step where "all of them" is the sensible starting point but the user
+  may want to deselect a few. Ignored when `multi` is false.
 
 #### Sourcing options from an existing list variable (`options_var`)
 
@@ -630,7 +636,7 @@ valid on `exec`).
 |-----------|-------------------|---------------------------------------|
 | `exec`    | `run`             | `dir`, `capture`, `capture_lines` (mutually exclusive with `capture`) |
 | `confirm` | `prompt`          | `on_yes`, `on_no`                     |
-| `choose`  | `prompt` + exactly one of (`options`, `options_cmd`, `options_var`) | `multi`, `store` |
+| `choose`  | `prompt` + exactly one of (`options`, `options_cmd`, `options_var`) | `multi`, `store`, `default_all` (multi only) |
 | `input`   | `store`           | `prompt`                              |
 | `goto`    | `goto`            | —                                     |
 | `foreach` | `var`, `do`       | `as`                                  |

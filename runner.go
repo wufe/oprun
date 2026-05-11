@@ -442,12 +442,15 @@ func (r *Runner) runChoose(n *Node) error {
 
 	// gather saved defaults, then filter to values still present in choices
 	var defaults []string
+	var hadSavedState bool
 	if dynamic {
 		if n.Store != "" {
 			if v, ok := r.state.ListVars[n.Store]; ok {
 				defaults = v
+				hadSavedState = true
 			} else if v, ok := r.state.StringVars[n.Store]; ok && v != "" {
 				defaults = []string{v}
+				hadSavedState = true
 			}
 		}
 	} else if n.ID != "" {
@@ -456,6 +459,7 @@ func (r *Runner) runChoose(n *Node) error {
 			// compat with state files written before that change, plain
 			// labels still resolve via greedy match.
 			defaults = staticDefaultsToIndexValues(n.Options, v)
+			hadSavedState = true
 		}
 	}
 	if len(defaults) > 0 {
@@ -470,6 +474,16 @@ func (r *Runner) runChoose(n *Node) error {
 			}
 		}
 		defaults = filtered
+	}
+	// default_all: on first run only (no saved state of any shape for this
+	// node/store), pre-select every non-header option. Multi-select only —
+	// pre-selecting "all" for a single-select would be meaningless.
+	if !hadSavedState && n.Multi && n.DefaultAll {
+		for _, c := range choices {
+			if !c.IsHeader {
+				defaults = append(defaults, c.Value)
+			}
+		}
 	}
 
 	sel, err := r.prompt.Choose(header, choices, n.Multi, defaults)

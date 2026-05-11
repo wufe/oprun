@@ -160,6 +160,11 @@
                 "default": false,
                 "description": "Allow multiple selections. When true and `store` is set, the variable gets a list. Press `a` in the picker to toggle all on / all off."
               },
+              "default_all": {
+                "type": "boolean",
+                "default": false,
+                "description": "Multi-select only. On the first run (when no saved selection exists for this node/store), every non-header option is pre-selected. Once the user makes any selection it is persisted and drives subsequent runs — default_all does not override saved state. Ignored when `multi` is false."
+              },
               "store": {
                 "type": "string",
                 "description": "Optional variable name in which to store the selected value(s). Required on dynamic choose (options_cmd / options_var) if you want to reference the selection downstream."

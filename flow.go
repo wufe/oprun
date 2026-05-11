@@ -61,6 +61,13 @@ type Node struct {
 	OptionsVar string   `yaml:"options_var,omitempty"`
 	Store      string   `yaml:"store,omitempty"`
 
+	// DefaultAll, on a multi-select choose, pre-selects every non-header
+	// option on the first run (when no saved selection exists for this node).
+	// Once the user makes any selection it is persisted as usual and that
+	// state — not default_all — drives subsequent runs. No effect on
+	// single-select choose.
+	DefaultAll bool `yaml:"default_all,omitempty"`
+
 	// goto
 	Goto string `yaml:"goto,omitempty"`
 
